@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jogo do Mario</title>
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            background: #cceeff;
+            font-family: Arial, sans-serif;
+        }
+        canvas {
+            border: 2px solid #000;
+            background: #87CEFA;
+            position: relative;
+        }
+        #score, #timer, #starsCollected {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            font-size: 24px;
+            color: white;
+            z-index: 10;
+        }
+        #gameOverScreen {
+            display: none;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: rgba(255, 255, 255, 0.9);
+            padding: 20px;
+            border: 2px solid black;
+            text-align: center;
+            z-index: 20;
+        }
+    </style>
+</head>
+<body>
+    <div id="score">Pontuação: 0</div>
+    <div id="timer">Tempo: 0s</div>
+    <div id="starsCollected">Estrelas: 0</div>
+    <div id="gameOverScreen">
+        <h1>Game Over!</h1>
+        <button id="restartBtn">Reiniciar</button>
+    </div>
+    <canvas id="gameCanvas" width="800" height="400"></canvas>
+    <audio id="jumpSound" src="maro-jump-sound-effect_1 (1).mp3"></audio>
+    <audio id="gameOverSound" src="mixkit-sad-game-over-trombone-471.wav"></audio>
+    <audio id="starSound" src="diamond-found-190255.mp3"></audio>
+    <audio id="backgroundMusic" src="01. Ground Theme.mp3" loop></audio>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const scoreElement = document.getElementById('score');
+        const timerElement = document.getElementById('timer');
+        const starsCollectedElement = document.getElementById('starsCollected');
+        const gameOverScreen = document.getElementById('gameOverScreen');
+        const restartBtn = document.getElementById('restartBtn');
+        const jumpSound = document.getElementById('jumpSound');
+        const gameOverSound = document.getElementById('gameOverSound');
+        const starSound = document.getElementById('starSound');
+        const backgroundMusic = document.getElementById('backgroundMusic');
+
+        let score = 0;
+        let starsCollected = 0;
+        let timeSurvived = 0;
+        let gameSpeed = 2;
+        let isGameOver = false;
+
+        let mario = {
+            x: 50,
+            y: 300,
+            width: 40,
+            height: 60,
+            dy: 0,
+            gravity: 0.5,
+            jumpPower: -15,
+            jump: false,
+            grounded: true,
+            color: 'red',
+            moveSpeed: 5
+        };
+
+        let stars = [];
+        let obstacles = [];
+        let clouds = [];
+
+        function createCloud() {
+            const cloud = {
+                x: Math.random() * canvas.width,
+                y: Math.random() * (canvas.height - 150),
+                speed: Math.random() * (0.5 - 0.2) + 0.2
+            };
+            clouds.push(cloud);
+        }
+
+        function createStar() {
+            const star = {
+                x: Math.random() * (canvas.width - 30) + 15,
+                y: Math.random() * (canvas.height - 150) + 50,
+                collected: false
+            };
+            stars.push(star);
+        }
+
+        function drawMario() {
+            ctx.fillStyle = mario.color;
+            ctx.fillRect(mario.x, mario.y, mario.width, mario.height);
+        }
+
+        function drawStars() {
+            stars.forEach(star => {
+                ctx.fillStyle = star.collected ? 'lightyellow' : 'yellow';
+                ctx.beginPath();
+                ctx.arc(star.x, star.y, 7.5, 0, Math.PI * 2);
+                ctx.fill();
+            });
+        }
+
+        function drawObstacles() {
+            obstacles.forEach(obstacle => {
+                ctx.fillStyle = obstacle.type === 'moving' ? 'orange' : 'green';
+                ctx.fillRect(obstacle.x, obstacle.y, obstacle.width, obstacle.height);
+            });
+        }
+
+        function drawClouds() {
+            clouds.forEach(cloud => {
+                ctx.fillStyle = 'white';
+                ctx.beginPath();
+                ctx.arc(cloud.x, cloud.y, 20, 0, Math.PI * 2);
+                ctx.fill();
+            });
+        }
+
+        function moveClouds() {
+            clouds.forEach(cloud => {
+                cloud.x += cloud.speed;
+                if (cloud.x > canvas.width) {
+                    cloud.x = -20;
+                    cloud.y = Math.random() * (canvas.height - 150);
+                }
+            });
+        }
+
+        function moveObstacles() {
+            obstacles.forEach(obstacle => {
+                obstacle.x += obstacle.direction * (2 + gameSpeed);
+                if (obstacle.type === 'moving') {
+                    obstacle.y += Math.sin(obstacle.x / 50) * 2;
+                }
+                if (obstacle.x > canvas.width || obstacle.x < 0) {
+                    obstacle.direction *= -1;
+                }
+            });
+        }
+
+        function detectCollisions() {
+            for (let obstacle of obstacles) {
+                if (
+                    mario.x < obstacle.x + obstacle.width &&
+                    mario.x + mario.width > obstacle.x &&
+                    mario.y < obstacle.y + obstacle.height &&
+                    mario.y + mario.height > obstacle.y
+                ) {
+                    gameOver();
+                }
+            }
+            stars.forEach(star => {
+                if (!star.collected &&
+                    mario.x < star.x + 15 &&
+                    mario.x + mario.width > star.x &&
+                    mario.y < star.y + 15 &&
+                    mario.y + mario.height > star.y
+                ) {
+                    star.collected = true;
+                    starsCollected++;
+                    score += 10;
+                    starSound.play();
+                }
+            });
+            clouds.forEach(cloud => {
+                if (
+                    mario.x < cloud.x + 20 &&
+                    mario.x + mario.width > cloud.x &&
+                    mario.y < cloud.y + 20 &&
+                    mario.y + mario.height > cloud.y
+                ) {
+                    gameOver();
+                }
+            });
+        }
+
+        function gameOver() {
+            isGameOver = true;
+            gameOverSound.play();
+            backgroundMusic.pause();
+            gameOverScreen.style.display = 'block';
+        }
+
+        function updateScore() {
+            scoreElement.innerText = "Pontuação: " + score;
+            starsCollectedElement.innerText = "Estrelas: " + starsCollected;
+            timerElement.innerText = "Tempo: " + Math.floor(timeSurvived) + "s";
+        }
+
+        function addObstacle() {
+            const newObstacle = {
+                x: canvas.width,
+                y: Math.random() * (canvas.height - 50) + 50,
+                width: 30 + Math.random() * 70,
+                height: 30 + Math.random() * 70,
+                direction: Math.random() < 0.5 ? 1 : -1,
+                type: Math.random() > 0.5 ? 'moving' : 'static'
+            };
+            obstacles.push(newObstacle);
+        }
+
+        function checkForNewObstacles() {
+            if ([50, 100, 150, 200, 300, 400, 600, 850].includes(score)) {
+                addObstacle();
+            }
+        }
+
+        function update() {
+            if (isGameOver) return;
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            drawClouds();
+            moveClouds();
+            drawMario();
+            drawStars();
+            drawObstacles();
+            moveObstacles();
+            detectCollisions();
+
+            if (mario.jump) {
+                mario.dy = mario.jumpPower;
+                mario.jump = false;
+                mario.grounded = false;
+                jumpSound.play();
+                mario.color = 'orange';
+            } else {
+                mario.color = 'red';
+            }
+
+            if (!mario.grounded) {
+                mario.dy += mario.gravity;
+            }
+
+            mario.y += mario.dy;
+
+            if (mario.y + mario.height >= canvas.height) {
+                mario.y = canvas.height - mario.height;
+                mario.grounded = true;
+                mario.dy = 0;
+            }
+
+            updateScore();
+            timeSurvived += 0.02;
+
+            checkForNewObstacles();
+
+            requestAnimationFrame(update);
+        }
+
+        window.addEventListener('keydown', function (event) {
+            if (event.key === 'ArrowRight') {
+                mario.x += mario.moveSpeed;
+                if (mario.x + mario.width > canvas.width) {
+                    mario.x = canvas.width - mario.width;
+                }
+            } else if (event.key === 'ArrowLeft') {
+                mario.x -= mario.moveSpeed;
+                if (mario.x < 0) {
+                    mario.x = 0;
+                }
+            } else if (event.key === ' ' && mario.grounded) {
+                mario.jump = true;
+            }
+        });
+
+        restartBtn.addEventListener('click', function () {
+            document.location.reload();
+        });
+
+        for (let i = 0; i < 5; i++) {
+            createCloud();
+            createStar();
+        }
+
+        backgroundMusic.play();
+        backgroundMusic.volume = 0;
+        let volumeIncrease = setInterval(function() {
+            if (backgroundMusic.volume < 1) {
+                backgroundMusic.volume += 0.01;
+            } else {
+                clearInterval(volumeIncrease);
+            }
+        }, 100);
+
+        update();
+    </script>
+</body>
+</html>
